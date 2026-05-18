@@ -216,6 +216,46 @@
     }
     .img-thumb { cursor: grab; }
     .img-thumb.img-drag-over { outline: 3px solid #4299e1; opacity: .6; }
+
+    /* ── LIGHTBOX ── */
+    .lightbox {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,.92); flex-direction: column;
+      align-items: center; justify-content: center;
+    }
+    .lightbox.open { display: flex; }
+    .lb-img-wrap {
+      flex: 1; width: 100%; display: flex; align-items: center; justify-content: center;
+      overflow: hidden; position: relative;
+    }
+    .lb-img { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; pointer-events: none; transition: transform .2s ease; }
+    .lb-bar {
+      width: 100%; display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; flex-shrink: 0;
+    }
+    .lb-close {
+      background: rgba(255,255,255,.15); border: none; color: white; border-radius: 50%;
+      width: 40px; height: 40px; font-size: 22px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lb-counter { color: rgba(255,255,255,.7); font-size: 13px; font-weight: 700; }
+    .lb-del {
+      background: rgba(255,80,80,.25); border: none; color: #fc8181; border-radius: 10px;
+      padding: 8px 16px; font-size: 12px; font-weight: 800; cursor: pointer; letter-spacing:.4px;
+    }
+    .lb-del:active { background: rgba(255,80,80,.5); }
+    .lb-nav {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: rgba(255,255,255,.15); border: none; color: white; border-radius: 50%;
+      width: 42px; height: 42px; font-size: 24px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lb-nav.prev { left: 10px; }
+    .lb-nav.next { right: 10px; }
+    .lb-nav:active { background: rgba(255,255,255,.3); }
+    .lb-dots { display: flex; gap: 6px; padding-bottom: 4px; }
+    .lb-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.3); transition: background .2s; }
+    .lb-dot.active { background: white; }
     .subnote-item { touch-action: none; }
     .subnote-item.dragging { opacity: .4; }
     .subnote-item.drag-over { border-top: 2px solid #4299e1; }
@@ -331,6 +371,23 @@
       </div>
       <ul class="subnote-list" id="subnote-list"></ul>
     </div>
+  </div>
+</div>
+
+<!-- ═══════════ LIGHTBOX ═══════════ -->
+<div class="lightbox" id="lightbox">
+  <div class="lb-bar">
+    <button class="lb-close" onclick="closeLightbox()">×</button>
+    <span class="lb-counter" id="lb-counter"></span>
+    <button class="lb-del" onclick="deleteFromLightbox()">APAGAR</button>
+  </div>
+  <div class="lb-img-wrap" id="lb-img-wrap">
+    <button class="lb-nav prev" id="lb-prev" onclick="lbNav(-1)">‹</button>
+    <img class="lb-img" id="lb-img" src="" alt="">
+    <button class="lb-nav next" id="lb-next" onclick="lbNav(1)">›</button>
+  </div>
+  <div class="lb-bar" style="justify-content:center;padding-top:10px">
+    <div class="lb-dots" id="lb-dots"></div>
   </div>
 </div>
 
@@ -533,7 +590,7 @@ function renderNoteImgs(){
     area.innerHTML='<div class="img-ph">toque em + IMAGEM<br>para adicionar</div>';
   } else {
     area.innerHTML=`<div class="img-grid" id="img-grid">${imgs.map((src,i)=>`
-      <div class="img-thumb" data-idx="${i}">
+      <div class="img-thumb" data-idx="${i}" onclick="openLightbox(${i})">
         <img src="${src}" alt="">
         <button class="img-del" onclick="event.stopPropagation();delNoteImg(${i})">×</button>
       </div>`).join('')}</div>`;
@@ -763,6 +820,80 @@ function initImgDrag(){
     thumb.addEventListener('touchend',e=>{ if(touchSrc===null) return; if(touchClone){touchClone.remove();touchClone=null;} const t=e.changedTouches[0]; const el=document.elementFromPoint(t.clientX,t.clientY); const over=el?.closest('.img-thumb'); const ti=over?+over.dataset.idx:null; grid.querySelectorAll('.img-thumb').forEach(t=>{t.style.opacity='';t.classList.remove('img-drag-over');}); if(ti!==null&&ti!==touchSrc){ const item=dData(selKey)[selNote.panel][selNote.idx]; const [m]=item.images.splice(touchSrc,1); item.images.splice(ti>touchSrc?ti-1:ti,0,m); save(); renderNoteImgs(); } touchSrc=null; });
   });
 }
+
+// ─── LIGHTBOX ────────────────────────────────────────
+let _lb = { idx: 0 };
+
+function openLightbox(idx) {
+  const item = dData(selKey)[selNote.panel][selNote.idx];
+  const imgs = item.images || [];
+  if (!imgs.length) return;
+  _lb.idx = idx;
+  document.getElementById('lightbox').classList.add('open');
+  renderLightbox();
+  initLightboxSwipe();
+}
+
+function renderLightbox() {
+  const item = dData(selKey)[selNote.panel][selNote.idx];
+  const imgs = item.images || [];
+  const i = _lb.idx;
+  document.getElementById('lb-img').src = imgs[i];
+  document.getElementById('lb-counter').textContent = `${i + 1} / ${imgs.length}`;
+  document.getElementById('lb-prev').style.display = imgs.length > 1 ? 'flex' : 'none';
+  document.getElementById('lb-next').style.display = imgs.length > 1 ? 'flex' : 'none';
+  document.getElementById('lb-dots').innerHTML = imgs.map((_, di) =>
+    `<div class="lb-dot${di === i ? ' active' : ''}"></div>`).join('');
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+}
+
+function lbNav(dir) {
+  const item = dData(selKey)[selNote.panel][selNote.idx];
+  const len = (item.images || []).length;
+  _lb.idx = (_lb.idx + dir + len) % len;
+  renderLightbox();
+}
+
+function deleteFromLightbox() {
+  const item = dData(selKey)[selNote.panel][selNote.idx];
+  item.images.splice(_lb.idx, 1);
+  save();
+  if (!item.images.length) { closeLightbox(); renderNoteImgs(); return; }
+  _lb.idx = Math.min(_lb.idx, item.images.length - 1);
+  renderLightbox();
+  renderNoteImgs();
+}
+
+function initLightboxSwipe() {
+  const wrap = document.getElementById('lb-img-wrap');
+  let tx = 0, startX = 0, dragging = false;
+  wrap.ontouchstart = e => { startX = e.touches[0].clientX; dragging = true; };
+  wrap.ontouchmove = e => { if (!dragging) return; tx = e.touches[0].clientX - startX; };
+  wrap.ontouchend = () => {
+    if (!dragging) return; dragging = false;
+    if (tx < -50) lbNav(1);
+    else if (tx > 50) lbNav(-1);
+    tx = 0;
+  };
+  wrap.onmousedown = e => { startX = e.clientX; dragging = true; };
+  wrap.onmousemove = e => { if (!dragging) return; tx = e.clientX - startX; };
+  wrap.onmouseup = () => {
+    if (!dragging) return; dragging = false;
+    if (tx < -50) lbNav(1);
+    else if (tx > 50) lbNav(-1);
+    tx = 0;
+  };
+}
+
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('lightbox').classList.contains('open')) return;
+  if (e.key === 'ArrowRight') lbNav(1);
+  if (e.key === 'ArrowLeft') lbNav(-1);
+  if (e.key === 'Escape') closeLightbox();
+});
 
 // ─── FIREBASE + BOOT ─────────────────────────────────
 (async () => {
