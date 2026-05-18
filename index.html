@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Agenda">
+  <meta name="theme-color" content="#f0f4f8">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+  <title>Agenda</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <style>
+    *, *::before, *::after {
+      margin: 0; padding: 0; box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      touch-action: pan-y;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      background: #f0f4f8; min-height: 100vh; overflow-x: hidden;
+    }
+
+    /* ── SCREENS ── */
+    .screen { display: none; }
+    .screen.active { display: block; animation: fadeIn .16s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(5px) } to { opacity:1; transform:none } }
+
+    /* ──────────────── CALENDAR ──────────────── */
+    .cal-wrap { padding: 24px 14px 48px; max-width: 780px; margin: 0 auto; }
+    .cal-layout { display: flex; flex-direction: row; gap: 14px; align-items: flex-start; }
+    .cal-notes-col { width: 210px; flex-shrink: 0; }
+    .cal-main { flex: 1; min-width: 0; }
+    @media (max-width: 600px) {
+      .cal-wrap { max-width: 500px; }
+      .cal-layout { flex-direction: column; }
+      .cal-main { order: 1; width: 100%; }
+      .cal-notes-col { order: 2; width: 100%; }
+    }
+
+    .cal-top { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 22px; }
+    .nav-btn {
+      background: white; border: none; border-radius: 10px;
+      width: 38px; height: 38px; font-size: 22px; color: #555;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1); touch-action: manipulation;
+    }
+    .nav-btn:active { transform: scale(.9); }
+    .month-title { font-size: 26px; font-weight: 900; color: #1a2035; letter-spacing: 1px; }
+
+    .cal-card { background: white; border-radius: 18px; padding: 18px 12px 14px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+    .weekdays { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 6px; }
+    .wd { text-align: center; font-size: 10.5px; font-weight: 700; color: #8a94a6; letter-spacing:.4px; padding: 3px 0; }
+    .wd.post { color: #c9a227; }
+    .days-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; }
+
+    .day-cell {
+      aspect-ratio: 1; border-radius: 11px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      cursor: pointer; border: 2.5px solid transparent; background: #f8fafc;
+      transition: transform .1s ease; position: relative; user-select: none; touch-action: manipulation;
+    }
+    .day-cell:active { transform: scale(.88); }
+    .day-cell.empty { background: transparent; cursor: default; pointer-events: none; }
+    .day-cell.post-day { border-color: #F5C518; background: linear-gradient(135deg,#fffdf0,#fffbe8); }
+    .day-cell.has-notes::after {
+      content: ''; position: absolute; bottom: 4px;
+      width: 5px; height: 5px; border-radius: 50%; background: #4299e1;
+    }
+    .day-cell.post-day.has-notes::after { background: #c9a227; }
+    .day-num { font-size: 13.5px; font-weight: 600; color: #2d3748; line-height: 1; }
+    .day-cell.post-day .day-num { font-weight: 800; color: #1a2035; }
+    .post-icon { font-size: 9px; margin-top: 2px; }
+
+    .legend { margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 11px; display: flex; flex-direction: column; gap: 8px; }
+    .leg-item { display: flex; align-items: center; gap: 9px; font-size: 10px; font-weight: 700; color: #4a5568; letter-spacing:.4px; }
+    .leg-box { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; }
+    .leg-box.post { border: 2.5px solid #F5C518; background: #fffbe8; }
+    .leg-box.notes { background: #dbeafe; }
+
+    /* ── NOTES PANEL (calendar screen) ── */
+    .notes-panel { background: white; border-radius: 18px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+    .notes-panel-title { font-size: 11px; font-weight: 800; color: white; letter-spacing: 1.2px; background: #000; padding: 10px 14px; }
+    .notes-panel-body { padding: 14px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    .notes-panel-body .add-btn { background: #000; }
+    .notes-panel-body .add-btn:active { background: #333; }
+    .notes-panel-body .notes-inp { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; }
+    .notes-panel-body .notes-inp::placeholder { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; }
+    .notes-panel-body .t-text { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; }
+    .notes-panel-body .t-edit { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; }
+    .notes-add-row { display: flex; gap: 6px; margin-bottom: 10px; }
+    .notes-inp {
+      flex: 1; min-width: 0; border: 1.5px solid #e2e8f0; border-radius: 8px;
+      padding: 9px 10px; font-size: 16px; font-weight: 500; color: #4a5568; background: white; outline: none;
+    }
+    .notes-inp::placeholder { color: #b0bac9; font-size: 13px; }
+    .notes-inp:focus { border-color: #4299e1; }
+
+    /* ──────────────── DAY VIEW ──────────────── */
+    .day-wrap { min-height: 100vh; background: #f0f4f8; padding: 18px 12px 48px; max-width: 500px; margin: 0 auto; }
+    .day-hdr { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+    .back-btn {
+      background: #e2e8f0; border: none; border-radius: 10px;
+      width: 40px; height: 40px; font-size: 20px; color: #4a5568;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; touch-action: manipulation; margin-top: 2px;
+    }
+    .back-btn:active { transform: scale(.9); }
+    .day-title { font-size: 21px; font-weight: 900; color: #1a2035; text-transform: uppercase; line-height: 1.15; }
+
+    .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 500px) { .panels { grid-template-columns: 1fr; } .panel { min-height: 200px; } }
+    .panel { border-radius: 15px; padding: 13px 11px; min-height: 320px; }
+    .panel.tasks { background: white; }
+    .panel.creative { background: #dbeafe; }
+    .panel-title { font-size: 10px; font-weight: 800; color: #1a2035; letter-spacing:.8px; margin-bottom: 11px; }
+
+    .add-row { display: flex; gap: 6px; margin-bottom: 10px; }
+    .add-input {
+      flex: 1; min-width: 0; border: 1.5px solid #e2e8f0; border-radius: 8px;
+      padding: 8px 7px; font-size: 16px; font-weight: 600; color: #4a5568;
+      background: white; outline: none; letter-spacing:.2px;
+    }
+    .add-input::placeholder { color: #b0bac9; text-transform: uppercase; font-size: 9.5px; letter-spacing:.4px; }
+    .add-input:focus { border-color: #4299e1; }
+    .add-btn {
+      background: #4299e1; color: white; border: none; border-radius: 8px;
+      width: 32px; height: 32px; font-size: 20px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0; touch-action: manipulation;
+    }
+    .add-btn:active { background: #2b6cb0; transform: scale(.9); }
+
+    /* ── TASK ITEMS ── */
+    .task-list { list-style: none; display: flex; flex-direction: column; }
+    .task-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 2px; border-bottom: 1px solid rgba(0,0,0,.05);
+      cursor: pointer; touch-action: none;
+    }
+    .task-item:last-child { border-bottom: none; }
+    .task-item:active { background: rgba(66,153,225,.05); border-radius: 8px; }
+    .task-item.dragging { opacity: .4; background: rgba(66,153,225,.08); border-radius: 8px; }
+    .task-item.drag-over { border-top: 2px solid #4299e1; }
+
+    .t-check {
+      width: 18px; height: 18px; border-radius: 5px;
+      border: 2px solid #cbd5e0; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: white; background: white; transition: all .15s; touch-action: manipulation;
+    }
+    .t-check.done { background: #4299e1; border-color: #4299e1; }
+    .t-text { flex: 1; font-size: 12px; color: #2d3748; word-break: break-word; min-width: 0; }
+    .t-text.done { text-decoration: line-through; color: #a0aec0; }
+    .t-arrow { color: #c0cad8; font-size: 13px; flex-shrink: 0; }
+    .drag-handle {
+      color: #c0cad8; font-size: 14px; cursor: grab; flex-shrink: 0;
+      padding: 2px 3px; touch-action: none; user-select: none;
+    }
+    .drag-handle:active { cursor: grabbing; color: #4299e1; }
+    .t-edit {
+      flex: 1; min-width: 0; border: 1.5px solid #4299e1; border-radius: 6px;
+      padding: 3px 6px; font-size: 16px; color: #2d3748; background: white; outline: none;
+    }
+
+    /* board btn */
+    .board-link-btn {
+      display: block; width: 100%; margin-top: 14px;
+      background: #4299e1; color: white; border: none; border-radius: 10px;
+      padding: 9px; font-size: 10px; font-weight: 800; letter-spacing:.6px;
+      cursor: pointer; text-transform: uppercase; text-align: center; touch-action: manipulation;
+    }
+    .board-link-btn:active { background: #2b6cb0; }
+
+    /* ──────────────── NOTE DETAIL (Layout 3) ──────────────── */
+    .note-wrap { min-height: 100vh; background: #f0f4f8; padding: 18px 12px 48px; max-width: 500px; margin: 0 auto; }
+    .note-hdr { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+    .note-title-inp {
+      flex: 1; font-size: 22px; font-weight: 900; color: #1a2035;
+      background: none; border: none; outline: none; text-transform: uppercase;
+      line-height: 1.2; font-family: inherit; padding: 2px 0;
+    }
+    .note-title-inp::placeholder { color: #c0cad8; text-transform: uppercase; }
+
+    .img-btn-wrap { position: relative; display: inline-block; margin-bottom: 12px; }
+    .img-btn {
+      background: #4299e1; color: white; border: none; border-radius: 10px;
+      padding: 9px 16px; font-size: 11px; font-weight: 800; letter-spacing:.5px;
+      cursor: pointer; display: block; touch-action: manipulation; pointer-events: none;
+    }
+    .img-btn-wrap .img-inp {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      opacity: 0; cursor: pointer; font-size: 16px;
+    }
+    .img-area {
+      background: white; border-radius: 15px; width: 100%;
+      min-height: 100px; overflow: hidden; margin-bottom: 14px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.07);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .img-ph { color: #c0cad8; font-size: 11.5px; font-weight: 600; text-align: center; padding: 20px; }
+    .img-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; width: 100%; padding: 3px; }
+    .img-thumb { position: relative; aspect-ratio: 1; overflow: hidden; border-radius: 8px; }
+    .img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .img-del {
+      position: absolute; top: 4px; right: 4px;
+      background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%;
+      width: 22px; height: 22px; font-size: 15px; cursor: pointer; line-height: 1;
+      display: flex; align-items: center; justify-content: center; touch-action: manipulation;
+    }
+    .img-thumb { cursor: grab; }
+    .img-thumb.img-drag-over { outline: 3px solid #4299e1; opacity: .6; }
+    .subnote-item { touch-action: none; }
+    .subnote-item.dragging { opacity: .4; }
+    .subnote-item.drag-over { border-top: 2px solid #4299e1; }
+
+    .subnotes-card { background: white; border-radius: 15px; padding: 13px; box-shadow: 0 1px 6px rgba(0,0,0,.07); }
+    .subnote-add-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .subnote-inp {
+      flex: 1; border: 1.5px solid #e2e8f0; border-radius: 8px;
+      padding: 9px 10px; font-size: 16px; color: #4a5568; background: white; outline: none;
+    }
+    .subnote-inp::placeholder { color: #b0bac9; text-transform: uppercase; font-size: 10px; letter-spacing:.4px; }
+    .subnote-inp:focus { border-color: #4299e1; }
+    .subnote-list { display: flex; flex-direction: column; }
+    .subnote-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 4px; border-bottom: 1px solid rgba(0,0,0,.05); font-size: 12px; color: #2d3748;
+    }
+    .subnote-item:last-child { border-bottom: none; }
+    .subnote-del { color: #cbd5e0; cursor: pointer; font-size: 16px; padding-left: 8px; flex-shrink: 0; }
+    .subnote-del:active { color: #fc8181; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════ LAYOUT 1 — CALENDAR ═══════════ -->
+<div id="sc-cal" class="screen active">
+  <div class="cal-wrap">
+    <div class="cal-top">
+      <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:26px">📅</span>
+        <span class="month-title" id="month-lbl"></span>
+      </div>
+      <button class="nav-btn" onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="cal-layout">
+      <div class="cal-notes-col">
+        <div class="notes-panel">
+          <div class="notes-panel-title">NOTES</div>
+          <div class="notes-panel-body">
+            <div class="notes-add-row">
+              <input class="notes-inp" id="gnote-inp" placeholder="Adicione"
+                onkeydown="if(event.key==='Enter')addGNote()">
+              <button class="add-btn" onclick="addGNote()">+</button>
+            </div>
+            <ul class="task-list" id="gnotes-list"></ul>
+          </div>
+        </div>
+      </div>
+      <div class="cal-main">
+        <div class="cal-card">
+          <div class="weekdays" id="wk-headers"></div>
+          <div class="days-grid" id="days-grid"></div>
+          <div class="legend">
+            <div class="leg-item"><div class="leg-box post"></div>DIAS DE POST (TERÇA, QUINTA, DOMINGO)</div>
+            <div class="leg-item"><div class="leg-box notes"></div>VOCÊ TEM ANOTAÇÕES NESTE DIA</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ LAYOUT 2 — DIA ═══════════ -->
+<div id="sc-day" class="screen">
+  <div class="day-wrap">
+    <div class="day-hdr">
+      <button class="back-btn" onclick="showCal()">←</button>
+      <div class="day-title" id="day-lbl"></div>
+    </div>
+    <div class="panels">
+      <div class="panel tasks">
+        <div class="panel-title">TAREFAS DO DIA</div>
+        <div class="add-row">
+          <input class="add-input" id="task-inp" placeholder="Adicione"
+            onkeydown="if(event.key==='Enter')addItem('tasks')">
+          <button class="add-btn" onclick="addItem('tasks')">+</button>
+        </div>
+        <ul class="task-list" id="tasks-list"></ul>
+      </div>
+      <div class="panel creative">
+        <div class="panel-title">CRIATIVO</div>
+        <div class="add-row">
+          <input class="add-input" id="cre-inp" placeholder="Adicione"
+            onkeydown="if(event.key==='Enter')addItem('creative')">
+          <button class="add-btn" onclick="addItem('creative')">+</button>
+        </div>
+        <ul class="task-list" id="cre-list"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ LAYOUT 3 — DETALHE DA NOTA ═══════════ -->
+<div id="sc-note" class="screen">
+  <div class="note-wrap">
+    <div class="note-hdr">
+      <button class="back-btn" onclick="saveNote()">←</button>
+      <input class="note-title-inp" id="note-title" placeholder="Título">
+    </div>
+    <div class="img-btn-wrap">
+      <span class="img-btn">+ IMAGEM</span>
+      <input type="file" id="note-img-inp" class="img-inp" accept="image/*" multiple onchange="loadNoteImg(event)">
+    </div>
+    <div class="img-area" id="note-img-area">
+      <div class="img-ph">toque em + IMAGEM<br>para adicionar</div>
+    </div>
+    <div class="subnotes-card">
+      <div class="subnote-add-row">
+        <input class="subnote-inp" id="subnote-inp" placeholder="Adicione texto"
+          onkeydown="if(event.key==='Enter')addSubnote()">
+        <button class="add-btn" onclick="addSubnote()">+</button>
+      </div>
+      <ul class="subnote-list" id="subnote-list"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CONSTANTS ───────────────────────────────────────
+const MONTHS   = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+const DAY_NAMES= ['DOMINGO','SEGUNDA-FEIRA','TERÇA-FEIRA','QUARTA-FEIRA','QUINTA-FEIRA','SEXTA-FEIRA','SÁBADO'];
+const WK_HDR   = ['SEG','TER','QUA','QUI','SEX','SÁB','DOM'];
+const POST_DAYS= [2,4,0];
+const POST_WK  = ['TER','QUI','DOM'];
+
+// ─── STATE ───────────────────────────────────────────
+const today = new Date();
+let curMonth = today.getMonth();
+let curYear  = today.getFullYear();
+let selDay=null, selKey=null;
+let selNote={panel:null, idx:null}; // current open note
+let DB = JSON.parse(localStorage.getItem('agenda_db')||'{}');
+
+let _pendingSaves=0;
+function save(){
+  localStorage.setItem('agenda_db',JSON.stringify(DB));
+  if(window._cloudRef){ _pendingSaves++; window._cloudRef.set({db:DB}).catch(()=>{}); }
+}
+function dKey(y,m,d){ return `${y}-${m}-${d}`; }
+function dData(k){
+  if(!DB[k]) DB[k]={tasks:[],creative:[]};
+  return DB[k];
+}
+function hasContent(y,m,d){
+  const k=dKey(y,m,d),dd=DB[k];
+  return dd&&(dd.tasks?.length||dd.creative?.length);
+}
+function esc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── SCREEN ROUTING ──────────────────────────────────
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0,0);
+}
+function showCal(){ renderCal(); show('sc-cal'); }
+function showDay(){ renderDay(); show('sc-day'); }
+
+// ─── CALENDAR ────────────────────────────────────────
+function changeMonth(d){
+  curMonth+=d;
+  if(curMonth>11){curMonth=0;curYear++;}
+  if(curMonth<0) {curMonth=11;curYear--;}
+  renderCal();
+}
+
+function renderCal(){
+  document.getElementById('month-lbl').textContent=`${MONTHS[curMonth]} ${curYear}`;
+  document.getElementById('wk-headers').innerHTML=
+    WK_HDR.map(h=>`<div class="wd${POST_WK.includes(h)?' post':''}">${h}</div>`).join('');
+
+  const firstDow=new Date(curYear,curMonth,1).getDay();
+  const offset=(firstDow===0)?6:firstDow-1;
+  const total=new Date(curYear,curMonth+1,0).getDate();
+  let cells=Array(offset).fill(null);
+  for(let d=1;d<=total;d++) cells.push(d);
+  while(cells.length%7!==0) cells.push(null);
+
+  document.getElementById('days-grid').innerHTML=cells.map(d=>{
+    if(!d) return '<div class="day-cell empty"></div>';
+    const dow=new Date(curYear,curMonth,d).getDay();
+    const isPost=POST_DAYS.includes(dow);
+    const hasN=hasContent(curYear,curMonth,d);
+    return `<div class="day-cell${isPost?' post-day':''}${hasN?' has-notes':''}"
+      data-day="${d}" onclick="openDay(${d})">
+      <span class="day-num">${d}</span>
+      ${isPost?'<span class="post-icon">📱</span>':''}
+    </div>`;
+  }).join('');
+}
+
+// ─── DAY VIEW ────────────────────────────────────────
+function openDay(d){
+  selDay=d; selKey=dKey(curYear,curMonth,d);
+  dData(selKey); showDay();
+}
+
+function renderDay(){
+  const date=new Date(curYear,curMonth,selDay);
+  const lbl=`${DAY_NAMES[date.getDay()]}, ${selDay} DE ${MONTHS[curMonth]}`;
+  document.getElementById('day-lbl').textContent=lbl;
+  renderList('tasks');
+  renderList('creative');
+}
+
+function renderList(panel){
+  const id=panel==='tasks'?'tasks-list':'cre-list';
+  const items=dData(selKey)[panel]||[];
+  document.getElementById(id).innerHTML=items.map((item,i)=>`
+    <li class="task-item" data-panel="${panel}" data-idx="${i}">
+      <div class="t-check${item.done?' done':''}"
+        onclick="event.stopPropagation();toggleDone('${panel}',${i})">
+        ${item.done?'✓':''}
+      </div>
+      <span class="t-text${item.done?' done':''}" id="ttext-${panel}-${i}">${esc(item.text||'(sem título)')}</span>
+      <span class="t-arrow">›</span>
+      <div class="drag-handle" data-panel="${panel}" data-idx="${i}"
+        onclick="event.stopPropagation()">⠿</div>
+    </li>`).join('');
+
+  document.getElementById(id).querySelectorAll('.task-item').forEach(li=>{
+    const p=li.dataset.panel, idx=+li.dataset.idx;
+    let lastTap=0, pressTimer=null;
+
+    // desktop: double-click → Layout 3
+    li.addEventListener('dblclick',e=>{
+      if(e.target.closest('.t-check,.drag-handle')) return;
+      openNote(p,idx);
+    });
+    // desktop: long mousedown → edit inline
+    li.addEventListener('mousedown',e=>{
+      if(e.target.closest('.t-check,.drag-handle')) return;
+      pressTimer=setTimeout(()=>{ pressTimer=null; editItemInline(p,idx); },500);
+    });
+    li.addEventListener('mouseup',  ()=>{ clearTimeout(pressTimer); pressTimer=null; });
+    li.addEventListener('mouseleave',()=>{ clearTimeout(pressTimer); pressTimer=null; });
+
+    // mobile: touchstart → start long-press timer
+    li.addEventListener('touchstart',e=>{
+      if(e.target.closest('.t-check,.drag-handle')) return;
+      pressTimer=setTimeout(()=>{ pressTimer=null; editItemInline(p,idx); },500);
+    },{passive:true});
+    // mobile: touchmove cancels long press (user is scrolling)
+    li.addEventListener('touchmove',()=>{ clearTimeout(pressTimer); pressTimer=null; },{passive:true});
+    // mobile: touchend → cancel timer + check double-tap
+    li.addEventListener('touchend',e=>{
+      if(!pressTimer){ return; } // long press already fired
+      clearTimeout(pressTimer); pressTimer=null;
+      if(e.target.closest('.t-check,.drag-handle')) return;
+      const now=Date.now();
+      if(now-lastTap<350){ e.preventDefault(); openNote(p,idx); }
+      lastTap=now;
+    });
+  });
+
+  initDrag(id, panel);
+}
+
+function editItemInline(panel,idx){
+  const span=document.getElementById(`ttext-${panel}-${idx}`);
+  if(!span) return;
+  const item=dData(selKey)[panel][idx];
+  const inp=document.createElement('input');
+  inp.className='t-edit'; inp.value=item.text||'';
+  span.replaceWith(inp); inp.focus(); inp.select();
+  function commit(){ const v=inp.value.trim(); if(v) item.text=v; save(); renderList(panel); }
+  inp.onblur=commit;
+  inp.onkeydown=e=>{
+    if(e.key==='Enter'){ e.preventDefault(); inp.blur(); }
+    if(e.key==='Escape'){ inp.onblur=null; renderList(panel); }
+  };
+}
+
+function addItem(panel){
+  const inp=document.getElementById(panel==='tasks'?'task-inp':'cre-inp');
+  const text=inp.value.trim(); if(!text) return;
+  inp.value='';
+  dData(selKey)[panel].push({text, done:false, image:null, subnotes:[]});
+  save();
+  renderList(panel);
+}
+
+function toggleDone(panel,i){
+  const item=dData(selKey)[panel][i];
+  item.done=!item.done; save(); renderList(panel);
+}
+
+// ─── NOTE DETAIL (Layout 3) ───────────────────────────
+function openNote(panel, idx){
+  selNote={panel, idx};
+  const item=dData(selKey)[panel][idx];
+  if(item.image && !item.images){ item.images=[item.image]; delete item.image; }
+  if(!item.images) item.images=[];
+  document.getElementById('note-title').value=item.text||'';
+  renderNoteImgs();
+  renderSubnotes();
+  show('sc-note');
+}
+
+function renderNoteImgs(){
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  const imgs=item.images||[];
+  const area=document.getElementById('note-img-area');
+  if(!imgs.length){
+    area.innerHTML='<div class="img-ph">toque em + IMAGEM<br>para adicionar</div>';
+  } else {
+    area.innerHTML=`<div class="img-grid" id="img-grid">${imgs.map((src,i)=>`
+      <div class="img-thumb" data-idx="${i}">
+        <img src="${src}" alt="">
+        <button class="img-del" onclick="event.stopPropagation();delNoteImg(${i})">×</button>
+      </div>`).join('')}</div>`;
+  initImgDrag();
+  }
+}
+
+function delNoteImg(i){
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  item.images.splice(i,1); save(); renderNoteImgs();
+}
+
+function saveNote(){
+  const title=document.getElementById('note-title').value.trim();
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  item.text=title;
+  save();
+  showDay();
+}
+
+function loadNoteImg(e){
+  const files=Array.from(e.target.files); if(!files.length) return;
+  let loaded=0;
+  const results=[];
+  files.forEach((f,fi)=>{
+    const r=new FileReader();
+    r.onload=ev=>{
+      const raw=ev.target.result;
+      const img=new Image();
+      img.onload=()=>{
+        try{
+          const max=1000;
+          let w=img.width, h=img.height;
+          if(w>max||h>max){ if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;} }
+          const c=document.createElement('canvas');
+          c.width=w; c.height=h;
+          c.getContext('2d').drawImage(img,0,0,w,h);
+          results[fi]=c.toDataURL('image/jpeg',0.85);
+        }catch(_){ results[fi]=raw; }
+        if(++loaded===files.length){
+          const item=dData(selKey)[selNote.panel][selNote.idx];
+          if(!item.images) item.images=[];
+          results.forEach(r=>item.images.push(r));
+          save(); renderNoteImgs();
+        }
+      };
+      img.onerror=()=>{ results[fi]=raw; if(++loaded===files.length){ const item=dData(selKey)[selNote.panel][selNote.idx]; if(!item.images) item.images=[]; results.forEach(r=>item.images.push(r)); save(); renderNoteImgs(); } };
+      img.src=raw;
+    };
+    r.readAsDataURL(f);
+  });
+  e.target.value='';
+}
+
+function renderSubnotes(){
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  const subs=item.subnotes||[];
+  document.getElementById('subnote-list').innerHTML=subs.map((s,i)=>`
+    <li class="subnote-item" data-idx="${i}">
+      <div class="drag-handle" data-panel="subnotes" data-idx="${i}">⠿</div>
+      <span style="flex:1">${esc(s)}</span>
+      <span class="subnote-del" onclick="delSubnote(${i})">×</span>
+    </li>`).join('');
+  initSubnoteDrag();
+}
+
+function addSubnote(){
+  const inp=document.getElementById('subnote-inp');
+  const t=inp.value.trim(); if(!t) return;
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  if(!item.subnotes) item.subnotes=[];
+  item.subnotes.push(t); save(); inp.value=''; renderSubnotes();
+}
+
+function delSubnote(i){
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  item.subnotes.splice(i,1); save(); renderSubnotes();
+}
+
+// ─── DRAG TO REORDER ─────────────────────────────────
+let _dg={src:null,srcIdx:null,panel:null,listId:null};
+
+document.addEventListener('touchmove',e=>{
+  if(!_dg.src) return; e.preventDefault();
+  const ul=document.getElementById(_dg.listId); if(!ul) return;
+  const touch=e.touches[0];
+  const sel=_dg.panel==='subnotes'?'.subnote-item:not(.dragging)':'.task-item:not(.dragging)';
+  const els=ul.querySelectorAll(sel);
+  let ins=false; els.forEach(el=>el.classList.remove('drag-over'));
+  els.forEach(el=>{ if(ins) return; const r=el.getBoundingClientRect(); if(touch.clientY<r.top+r.height/2){el.classList.add('drag-over');ins=true;} });
+},{passive:false});
+
+document.addEventListener('touchend',()=>{
+  if(!_dg.src) return;
+  const {src,srcIdx,panel,listId}=_dg;
+  const ul=document.getElementById(listId);
+  const over=ul?.querySelector('.drag-over');
+  if(over){
+    const ti=+over.dataset.idx;
+    let arr;
+    if(panel==='gnotes') arr=gNotes();
+    else if(panel==='subnotes') arr=dData(selKey)[selNote.panel][selNote.idx].subnotes;
+    else arr=dData(selKey)[panel];
+    const [m]=arr.splice(srcIdx,1); arr.splice(ti>srcIdx?ti-1:ti,0,m); save();
+  }
+  src.classList.remove('dragging');
+  ul?.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  _dg={src:null,srcIdx:null,panel:null,listId:null};
+  if(panel==='gnotes') renderGNotes();
+  else if(panel==='subnotes') renderSubnotes();
+  else renderList(panel);
+});
+
+function initDrag(listId, panel){
+  const ul=document.getElementById(listId); if(!ul) return;
+  ul.querySelectorAll('.drag-handle').forEach(handle=>{
+    handle.addEventListener('touchstart',e=>{
+      e.preventDefault(); e.stopPropagation();
+      const li=handle.closest('.task-item');
+      _dg={src:li,srcIdx:+handle.dataset.idx,panel,listId};
+      li.classList.add('dragging');
+    },{passive:false});
+    handle.addEventListener('mousedown',e=>{
+      e.stopPropagation();
+      const li=handle.closest('.task-item');
+      _dg={src:li,srcIdx:+handle.dataset.idx,panel,listId};
+      li.classList.add('dragging');
+      function onMove(e){ const els=ul.querySelectorAll('.task-item:not(.dragging)'); els.forEach(el=>el.classList.remove('drag-over')); els.forEach(el=>{ const r=el.getBoundingClientRect(); if(e.clientY<r.top+r.height/2&&e.clientY>r.top-5) el.classList.add('drag-over'); }); }
+      function onUp(){ const {srcIdx,src}=_dg; const over=ul.querySelector('.drag-over'); if(over){ const ti=+over.dataset.idx,arr=dData(selKey)[panel],[m]=arr.splice(srcIdx,1); arr.splice(ti>srcIdx?ti-1:ti,0,m); save(); } src?.classList.remove('dragging'); ul.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over')); _dg={src:null,srcIdx:null,panel:null,listId:null}; document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); renderList(panel); }
+      document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp);
+    });
+  });
+}
+
+// ─── GLOBAL NOTES ────────────────────────────────────
+function gNotes(){ if(!DB['__notes']) DB['__notes']=[]; return DB['__notes']; }
+
+function renderGNotes(){
+  const items=gNotes();
+  document.getElementById('gnotes-list').innerHTML=items.map((item,i)=>`
+    <li class="task-item" data-panel="gnotes" data-idx="${i}">
+      <div class="t-check${item.done?' done':''}" onclick="toggleGNote(${i})">
+        ${item.done?'✓':''}
+      </div>
+      <span class="t-text${item.done?' done':''}"
+        onclick="editGNote(this,${i})">${esc(item.text)}</span>
+      <div class="drag-handle" data-panel="gnotes" data-idx="${i}">⠿</div>
+    </li>`).join('');
+  initGNoteDrag();
+}
+
+function addGNote(){
+  const inp=document.getElementById('gnote-inp');
+  const text=inp.value.trim(); if(!text) return;
+  gNotes().push({text,done:false}); save(); inp.value=''; renderGNotes();
+}
+
+function toggleGNote(i){ const item=gNotes()[i]; item.done=!item.done; save(); renderGNotes(); }
+
+function editGNote(span,i){
+  const item=gNotes()[i];
+  const inp=document.createElement('input');
+  inp.className='t-edit'; inp.value=item.text;
+  span.replaceWith(inp); inp.focus(); inp.select();
+  function commit(){ const v=inp.value.trim(); if(v) item.text=v; save(); renderGNotes(); }
+  inp.onblur=commit;
+  inp.onkeydown=e=>{
+    if(e.key==='Enter'){e.preventDefault();inp.blur();}
+    if(e.key==='Escape'){inp.onblur=null;renderGNotes();}
+  };
+}
+
+function initGNoteDrag(){
+  const ul=document.getElementById('gnotes-list'); if(!ul) return;
+  ul.querySelectorAll('.drag-handle[data-panel="gnotes"]').forEach(handle=>{
+    handle.addEventListener('touchstart',e=>{
+      e.preventDefault(); e.stopPropagation();
+      const li=handle.closest('.task-item');
+      _dg={src:li,srcIdx:+handle.dataset.idx,panel:'gnotes',listId:'gnotes-list'};
+      li.classList.add('dragging');
+    },{passive:false});
+    handle.addEventListener('mousedown',e=>{
+      const li=handle.closest('.task-item');
+      _dg={src:li,srcIdx:+handle.dataset.idx,panel:'gnotes',listId:'gnotes-list'};
+      li.classList.add('dragging');
+      function onMove(e){ const els=ul.querySelectorAll('.task-item:not(.dragging)'); els.forEach(el=>el.classList.remove('drag-over')); els.forEach(el=>{ const r=el.getBoundingClientRect(); if(e.clientY<r.top+r.height/2&&e.clientY>r.top-5) el.classList.add('drag-over'); }); }
+      function onUp(){ const {srcIdx,src}=_dg; const over=ul.querySelector('.drag-over'); if(over){ const ti=+over.dataset.idx,arr=gNotes(),[m]=arr.splice(srcIdx,1); arr.splice(ti>srcIdx?ti-1:ti,0,m); save(); } src?.classList.remove('dragging'); ul.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over')); _dg={src:null,srcIdx:null,panel:null,listId:null}; document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); renderGNotes(); }
+      document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp);
+    });
+  });
+}
+
+function initSubnoteDrag(){
+  const ul=document.getElementById('subnote-list'); if(!ul) return;
+  ul.querySelectorAll('.drag-handle[data-panel="subnotes"]').forEach(handle=>{
+    handle.addEventListener('touchstart',e=>{
+      e.preventDefault(); e.stopPropagation();
+      const li=handle.closest('.subnote-item');
+      _dg={src:li,srcIdx:+handle.dataset.idx,panel:'subnotes',listId:'subnote-list'};
+      li.classList.add('dragging');
+    },{passive:false});
+    handle.addEventListener('mousedown',e=>{
+      e.stopPropagation();
+      const li=handle.closest('.subnote-item');
+      _dg={src:li,srcIdx:+handle.dataset.idx,panel:'subnotes',listId:'subnote-list'};
+      li.classList.add('dragging');
+      function onMove(e){ const els=ul.querySelectorAll('.subnote-item:not(.dragging)'); els.forEach(el=>el.classList.remove('drag-over')); els.forEach(el=>{ const r=el.getBoundingClientRect(); if(e.clientY<r.top+r.height/2&&e.clientY>r.top-5) el.classList.add('drag-over'); }); }
+      function onUp(){ const {srcIdx,src}=_dg; const over=ul.querySelector('.drag-over'); if(over){ const ti=+over.dataset.idx; const arr=dData(selKey)[selNote.panel][selNote.idx].subnotes; const [m]=arr.splice(srcIdx,1); arr.splice(ti>srcIdx?ti-1:ti,0,m); save(); } src?.classList.remove('dragging'); ul.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over')); _dg={src:null,srcIdx:null,panel:null,listId:null}; document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); renderSubnotes(); }
+      document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp);
+    });
+  });
+}
+
+function initImgDrag(){
+  const grid=document.getElementById('img-grid'); if(!grid) return;
+  let dragSrc=null, touchSrc=null, touchClone=null;
+  grid.querySelectorAll('.img-thumb').forEach(thumb=>{
+    const idx=+thumb.dataset.idx;
+    thumb.setAttribute('draggable','true');
+    thumb.addEventListener('dragstart',e=>{ dragSrc=idx; thumb.style.opacity='.4'; e.dataTransfer.effectAllowed='move'; });
+    thumb.addEventListener('dragend',()=>{ thumb.style.opacity=''; grid.querySelectorAll('.img-drag-over').forEach(t=>t.classList.remove('img-drag-over')); });
+    thumb.addEventListener('dragover',e=>{ e.preventDefault(); grid.querySelectorAll('.img-drag-over').forEach(t=>t.classList.remove('img-drag-over')); if(dragSrc!==idx) thumb.classList.add('img-drag-over'); });
+    thumb.addEventListener('drop',e=>{ e.preventDefault(); if(dragSrc===null||dragSrc===idx) return; const item=dData(selKey)[selNote.panel][selNote.idx]; const [m]=item.images.splice(dragSrc,1); item.images.splice(idx>dragSrc?idx-1:idx,0,m); dragSrc=null; save(); renderNoteImgs(); });
+    thumb.addEventListener('touchstart',e=>{ if(e.target.closest('.img-del')) return; touchSrc=idx; const rect=thumb.getBoundingClientRect(); touchClone=thumb.cloneNode(true); touchClone.style.cssText=`position:fixed;width:${rect.width}px;height:${rect.height}px;opacity:.85;pointer-events:none;z-index:999;border-radius:8px;left:${rect.left}px;top:${rect.top}px;`; document.body.appendChild(touchClone); thumb.style.opacity='.3'; },{passive:true});
+    thumb.addEventListener('touchmove',e=>{ if(touchSrc===null) return; e.preventDefault(); const t=e.touches[0]; touchClone.style.left=(t.clientX-touchClone.offsetWidth/2)+'px'; touchClone.style.top=(t.clientY-touchClone.offsetHeight/2)+'px'; grid.querySelectorAll('.img-drag-over').forEach(t=>t.classList.remove('img-drag-over')); const el=document.elementFromPoint(t.clientX,t.clientY); const over=el?.closest('.img-thumb'); if(over&&+over.dataset.idx!==touchSrc) over.classList.add('img-drag-over'); },{passive:false});
+    thumb.addEventListener('touchend',e=>{ if(touchSrc===null) return; if(touchClone){touchClone.remove();touchClone=null;} const t=e.changedTouches[0]; const el=document.elementFromPoint(t.clientX,t.clientY); const over=el?.closest('.img-thumb'); const ti=over?+over.dataset.idx:null; grid.querySelectorAll('.img-thumb').forEach(t=>{t.style.opacity='';t.classList.remove('img-drag-over');}); if(ti!==null&&ti!==touchSrc){ const item=dData(selKey)[selNote.panel][selNote.idx]; const [m]=item.images.splice(touchSrc,1); item.images.splice(ti>touchSrc?ti-1:ti,0,m); save(); renderNoteImgs(); } touchSrc=null; });
+  });
+}
+
+// ─── FIREBASE + BOOT ─────────────────────────────────
+(async () => {
+  try {
+    firebase.initializeApp({
+      apiKey: "AIzaSyBccWn36W0zHR6iOVLfHfVrqPY6NJxWGpw",
+      authDomain: "agendalu-73c68.firebaseapp.com",
+      projectId: "agendalu-73c68",
+      storageBucket: "agendalu-73c68.firebasestorage.app",
+      messagingSenderId: "639892443490",
+      appId: "1:639892443490:web:c68beeca15ad39621d5c3b"
+    });
+    const ref = firebase.firestore().collection('agenda').doc('luma');
+    window._cloudRef = ref;
+    const snap = await ref.get();
+    if(snap.exists && snap.data().db){
+      DB = snap.data().db;
+      localStorage.setItem('agenda_db', JSON.stringify(DB));
+    }
+    ref.onSnapshot(snap=>{
+      if(_pendingSaves>0){ _pendingSaves--; return; }
+      if(!snap.exists || !snap.data().db) return;
+      DB = snap.data().db;
+      localStorage.setItem('agenda_db', JSON.stringify(DB));
+      const active=document.querySelector('.screen.active');
+      if(active?.id==='sc-cal'){ renderCal(); renderGNotes(); }
+      else if(active?.id==='sc-day'){ renderDay(); }
+    });
+  } catch(e) { /* usa localStorage como fallback */ }
+  renderCal();
+  renderGNotes();
+})();
+</script>
+</body>
+</html>
