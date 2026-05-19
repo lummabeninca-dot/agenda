@@ -67,7 +67,10 @@
     }
     .day-cell:active { transform: scale(.88); }
     .day-cell.empty { background: transparent; cursor: default; pointer-events: none; }
+    .day-cell.today { border-color: #ccff00; background: #ccff00; box-shadow: 0 0 10px #ccff0099; }
+    .day-cell.today .day-num { color: #1a2035; font-weight: 900; }
     .day-cell.post-day { border-color: #f472b6; background: linear-gradient(135deg,#fdf2f8,#fce7f3); }
+    .day-cell.today.post-day { border-color: #ccff00; background: #ccff00; box-shadow: 0 0 10px #ccff0099; }
     .day-cell.has-notes::after {
       content: ''; position: absolute; bottom: 4px;
       width: 5px; height: 5px; border-radius: 50%; background: #4299e1;
@@ -486,10 +489,11 @@ function renderCal(){
     const dow=new Date(curYear,curMonth,d).getDay();
     const isPost=POST_DAYS.includes(dow);
     const hasN=hasContent(curYear,curMonth,d);
-    return `<div class="day-cell${isPost?' post-day':''}${hasN?' has-notes':''}"
+    const isToday = curYear===today.getFullYear() && curMonth===today.getMonth() && d===today.getDate();
+    return `<div class="day-cell${isPost?' post-day':''}${hasN?' has-notes':''}${isToday?' today':''}"
       data-day="${d}" onclick="openDay(${d})">
       <span class="day-num">${d}</span>
-      ${isPost?'<span class="post-icon">📱</span>':''}
+      ${isPost&&!isToday?'<span class="post-icon">📱</span>':''}
     </div>`;
   }).join('');
 }
