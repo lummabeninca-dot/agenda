@@ -67,12 +67,12 @@
     }
     .day-cell:active { transform: scale(.88); }
     .day-cell.empty { background: transparent; cursor: default; pointer-events: none; }
-    .day-cell.post-day { border-color: #F5C518; background: linear-gradient(135deg,#fffdf0,#fffbe8); }
+    .day-cell.post-day { border-color: #f472b6; background: linear-gradient(135deg,#fdf2f8,#fce7f3); }
     .day-cell.has-notes::after {
       content: ''; position: absolute; bottom: 4px;
       width: 5px; height: 5px; border-radius: 50%; background: #4299e1;
     }
-    .day-cell.post-day.has-notes::after { background: #c9a227; }
+    .day-cell.post-day.has-notes::after { background: #ec4899; }
     .day-num { font-size: 13.5px; font-weight: 600; color: #2d3748; line-height: 1; }
     .day-cell.post-day .day-num { font-weight: 800; color: #1a2035; }
     .post-icon { font-size: 9px; margin-top: 2px; }
@@ -80,7 +80,7 @@
     .legend { margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 11px; display: flex; flex-direction: column; gap: 8px; }
     .leg-item { display: flex; align-items: center; gap: 9px; font-size: 10px; font-weight: 700; color: #4a5568; letter-spacing:.4px; }
     .leg-box { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; }
-    .leg-box.post { border: 2.5px solid #F5C518; background: #fffbe8; }
+    .leg-box.post { border: 2.5px solid #f472b6; background: #fce7f3; }
     .leg-box.notes { background: #dbeafe; }
 
     /* ── PROGRESS CARD ── */
