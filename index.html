@@ -447,7 +447,10 @@ let _pendingSaves=0;
 let _noteOpen=false;
 let _noteImgs=[];
 
-function _imgsKey(){ return `agenda_imgs_${selKey}_${selNote.panel}_${selNote.idx}`; }
+function _imgsKey(){
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  return `agenda_imgs_${item._id||selKey+'_'+selNote.panel+'_'+selNote.idx}`;
+}
 function _loadImgs(){ try{ return JSON.parse(localStorage.getItem(_imgsKey())||'[]'); }catch(_){ return []; } }
 function _saveImgs(){ localStorage.setItem(_imgsKey(), JSON.stringify(_noteImgs)); }
 
@@ -619,6 +622,8 @@ function openNote(panel, idx){
   selNote={panel, idx};
   _noteOpen=true;
   const item=dData(selKey)[panel][idx];
+  // assign stable ID so images don't get lost if tasks are reordered/deleted
+  if(!item._id) item._id = Date.now().toString(36)+Math.random().toString(36).slice(2);
   // migrate legacy item.images → localStorage
   if(item.image && !item.images){ item.images=[item.image]; delete item.image; }
   if(item.images && item.images.length){
