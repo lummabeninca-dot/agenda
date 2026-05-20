@@ -445,6 +445,12 @@ let DB = JSON.parse(localStorage.getItem('agenda_db')||'{}');
 
 let _pendingSaves=0;
 let _noteOpen=false;
+let _noteImgs=[];
+
+function _imgsKey(){ return `agenda_imgs_${selKey}_${selNote.panel}_${selNote.idx}`; }
+function _loadImgs(){ try{ return JSON.parse(localStorage.getItem(_imgsKey())||'[]'); }catch(_){ return []; } }
+function _saveImgs(){ localStorage.setItem(_imgsKey(), JSON.stringify(_noteImgs)); }
+
 function save(){
   localStorage.setItem('agenda_db',JSON.stringify(DB));
   if(window._cloudRef){ _pendingSaves++; window._cloudRef.set({db:DB}).catch(()=>{}); }
@@ -613,8 +619,15 @@ function openNote(panel, idx){
   selNote={panel, idx};
   _noteOpen=true;
   const item=dData(selKey)[panel][idx];
+  // migrate legacy item.images → localStorage
   if(item.image && !item.images){ item.images=[item.image]; delete item.image; }
-  if(!item.images) item.images=[];
+  if(item.images && item.images.length){
+    const existing=_loadImgs();
+    if(!existing.length){ localStorage.setItem(_imgsKey(), JSON.stringify(item.images)); }
+    item.images=[];
+    save();
+  }
+  _noteImgs=_loadImgs();
   document.getElementById('note-title').value=item.text||'';
   renderNoteImgs();
   renderSubnotes();
@@ -631,8 +644,7 @@ function saveNote(){
 }
 
 function renderNoteImgs(){
-  const item=dData(selKey)[selNote.panel][selNote.idx];
-  const imgs=item.images||[];
+  const imgs=_noteImgs;
   const area=document.getElementById('note-img-area');
   const counter=document.getElementById('img-counter');
   if(counter) counter.textContent = imgs.length ? `${imgs.length}/70 fotos` : '';
@@ -649,16 +661,13 @@ function renderNoteImgs(){
 }
 
 function delNoteImg(i){
-  const item=dData(selKey)[selNote.panel][selNote.idx];
-  item.images.splice(i,1); save(); renderNoteImgs();
+  _noteImgs.splice(i,1); _saveImgs(); renderNoteImgs();
 }
 
 function loadNoteImg(e){
   const MAX_IMGS = 70;
   const files=Array.from(e.target.files); if(!files.length) return;
-  const item=dData(selKey)[selNote.panel][selNote.idx];
-  if(!item.images) item.images=[];
-  const slots = MAX_IMGS - item.images.length;
+  const slots = MAX_IMGS - _noteImgs.length;
   if(slots <= 0){ alert('Limite de 70 fotos atingido.'); e.target.value=''; return; }
   const filesToLoad = files.slice(0, slots);
   let loaded=0;
@@ -670,7 +679,7 @@ function loadNoteImg(e){
       const img=new Image();
       img.onload=()=>{
         try{
-          const max=1000;
+          const max=1200;
           let w=img.width, h=img.height;
           if(w>max||h>max){ if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;} }
           const c=document.createElement('canvas');
@@ -679,13 +688,11 @@ function loadNoteImg(e){
           results[fi]=c.toDataURL('image/jpeg',0.85);
         }catch(_){ results[fi]=raw; }
         if(++loaded===filesToLoad.length){
-          const current=dData(selKey)[selNote.panel][selNote.idx];
-          if(!current.images) current.images=[];
-          results.forEach(r=>{ if(r) current.images.push(r); });
-          save(); renderNoteImgs();
+          results.forEach(r=>{ if(r) _noteImgs.push(r); });
+          _saveImgs(); renderNoteImgs();
         }
       };
-      img.onerror=()=>{ results[fi]=raw; if(++loaded===filesToLoad.length){ const current=dData(selKey)[selNote.panel][selNote.idx]; if(!current.images) current.images=[]; results.forEach(r=>{ if(r) current.images.push(r); }); save(); renderNoteImgs(); } };
+      img.onerror=()=>{ results[fi]=raw; if(++loaded===filesToLoad.length){ results.forEach(r=>{ if(r) _noteImgs.push(r); }); _saveImgs(); renderNoteImgs(); } };
       img.src=raw;
     };
     r.readAsDataURL(f);
@@ -888,7 +895,7 @@ function initImgDrag(){
     thumb.addEventListener('dragstart',e=>{ dragSrc=idx; thumb.style.opacity='.4'; e.dataTransfer.effectAllowed='move'; });
     thumb.addEventListener('dragend',()=>{ thumb.style.opacity=''; grid.querySelectorAll('.img-drag-over').forEach(t=>t.classList.remove('img-drag-over')); });
     thumb.addEventListener('dragover',e=>{ e.preventDefault(); grid.querySelectorAll('.img-drag-over').forEach(t=>t.classList.remove('img-drag-over')); if(dragSrc!==idx) thumb.classList.add('img-drag-over'); });
-    thumb.addEventListener('drop',e=>{ e.preventDefault(); if(dragSrc===null||dragSrc===idx) return; const item=dData(selKey)[selNote.panel][selNote.idx]; const [m]=item.images.splice(dragSrc,1); item.images.splice(idx>dragSrc?idx-1:idx,0,m); dragSrc=null; save(); renderNoteImgs(); });
+    thumb.addEventListener('drop',e=>{ e.preventDefault(); if(dragSrc===null||dragSrc===idx) return; const [m]=_noteImgs.splice(dragSrc,1); _noteImgs.splice(idx>dragSrc?idx-1:idx,0,m); dragSrc=null; _saveImgs(); renderNoteImgs(); });
 
     // mobile: long-press to drag
     thumb.addEventListener('touchstart',e=>{
@@ -930,10 +937,9 @@ function initImgDrag(){
       const src=touchSrc;
       cancelTouch();
       if(ti!==null&&ti!==src){
-        const item=dData(selKey)[selNote.panel][selNote.idx];
-        const [m]=item.images.splice(src,1);
-        item.images.splice(ti>src?ti-1:ti,0,m);
-        save(); renderNoteImgs();
+        const [m]=_noteImgs.splice(src,1);
+        _noteImgs.splice(ti>src?ti-1:ti,0,m);
+        _saveImgs(); renderNoteImgs();
       }
     });
 
@@ -948,9 +954,7 @@ function initImgDrag(){
 let _lb = { idx: 0 };
 
 function openLightbox(idx) {
-  const item = dData(selKey)[selNote.panel][selNote.idx];
-  const imgs = item.images || [];
-  if (!imgs.length) return;
+  if (!_noteImgs.length) return;
   _lb.idx = idx;
   document.getElementById('lightbox').classList.add('open');
   renderLightbox();
@@ -958,8 +962,7 @@ function openLightbox(idx) {
 }
 
 function renderLightbox() {
-  const item = dData(selKey)[selNote.panel][selNote.idx];
-  const imgs = item.images || [];
+  const imgs = _noteImgs;
   const i = _lb.idx;
   document.getElementById('lb-img').src = imgs[i];
   document.getElementById('lb-counter').textContent = `${i + 1} / ${imgs.length}`;
@@ -974,18 +977,16 @@ function closeLightbox() {
 }
 
 function lbNav(dir) {
-  const item = dData(selKey)[selNote.panel][selNote.idx];
-  const len = (item.images || []).length;
+  const len = _noteImgs.length;
   _lb.idx = (_lb.idx + dir + len) % len;
   renderLightbox();
 }
 
 function deleteFromLightbox() {
-  const item = dData(selKey)[selNote.panel][selNote.idx];
-  item.images.splice(_lb.idx, 1);
-  save();
-  if (!item.images.length) { closeLightbox(); renderNoteImgs(); return; }
-  _lb.idx = Math.min(_lb.idx, item.images.length - 1);
+  _noteImgs.splice(_lb.idx, 1);
+  _saveImgs();
+  if (!_noteImgs.length) { closeLightbox(); renderNoteImgs(); return; }
+  _lb.idx = Math.min(_lb.idx, _noteImgs.length - 1);
   renderLightbox();
   renderNoteImgs();
 }
