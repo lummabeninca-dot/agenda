@@ -388,9 +388,12 @@
       <button class="back-btn" onclick="saveNote()">←</button>
       <input class="note-title-inp" id="note-title" placeholder="Título">
     </div>
-    <div class="img-btn-wrap">
-      <span class="img-btn">+ IMAGEM</span>
-      <input type="file" id="note-img-inp" class="img-inp" accept="image/*" multiple onchange="loadNoteImg(event)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div class="img-btn-wrap" style="margin-bottom:0">
+        <span class="img-btn">+ IMAGEM</span>
+        <input type="file" id="note-img-inp" class="img-inp" accept="image/*" multiple onchange="loadNoteImg(event)">
+      </div>
+      <span id="img-counter" style="font-size:11px;font-weight:700;color:#8a94a6;letter-spacing:.4px"></span>
     </div>
     <div class="img-area" id="note-img-area">
       <div class="img-ph">toque em + IMAGEM<br>para adicionar</div>
@@ -440,6 +443,7 @@ let selNote={panel:null, idx:null}; // current open note
 let DB = JSON.parse(localStorage.getItem('agenda_db')||'{}');
 
 let _pendingSaves=0;
+let _noteOpen=false;
 function save(){
   localStorage.setItem('agenda_db',JSON.stringify(DB));
   if(window._cloudRef){ _pendingSaves++; window._cloudRef.set({db:DB}).catch(()=>{}); }
@@ -606,6 +610,7 @@ function deleteGNote(i){
 // ─── NOTE DETAIL (Layout 3) ───────────────────────────
 function openNote(panel, idx){
   selNote={panel, idx};
+  _noteOpen=true;
   const item=dData(selKey)[panel][idx];
   if(item.image && !item.images){ item.images=[item.image]; delete item.image; }
   if(!item.images) item.images=[];
@@ -615,10 +620,21 @@ function openNote(panel, idx){
   show('sc-note');
 }
 
+function saveNote(){
+  const title=document.getElementById('note-title').value.trim();
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  item.text=title;
+  _noteOpen=false;
+  save();
+  showDay();
+}
+
 function renderNoteImgs(){
   const item=dData(selKey)[selNote.panel][selNote.idx];
   const imgs=item.images||[];
   const area=document.getElementById('note-img-area');
+  const counter=document.getElementById('img-counter');
+  if(counter) counter.textContent = imgs.length ? `${imgs.length}/70 fotos` : '';
   if(!imgs.length){
     area.innerHTML='<div class="img-ph">toque em + IMAGEM<br>para adicionar</div>';
   } else {
@@ -636,41 +652,39 @@ function delNoteImg(i){
   item.images.splice(i,1); save(); renderNoteImgs();
 }
 
-function saveNote(){
-  const title=document.getElementById('note-title').value.trim();
-  const item=dData(selKey)[selNote.panel][selNote.idx];
-  item.text=title;
-  save();
-  showDay();
-}
-
 function loadNoteImg(e){
+  const MAX_IMGS = 70;
   const files=Array.from(e.target.files); if(!files.length) return;
+  const item=dData(selKey)[selNote.panel][selNote.idx];
+  if(!item.images) item.images=[];
+  const slots = MAX_IMGS - item.images.length;
+  if(slots <= 0){ alert('Limite de 70 fotos atingido.'); e.target.value=''; return; }
+  const filesToLoad = files.slice(0, slots);
   let loaded=0;
   const results=[];
-  files.forEach((f,fi)=>{
+  filesToLoad.forEach((f,fi)=>{
     const r=new FileReader();
     r.onload=ev=>{
       const raw=ev.target.result;
       const img=new Image();
       img.onload=()=>{
         try{
-          const max=1000;
+          const max=500;
           let w=img.width, h=img.height;
           if(w>max||h>max){ if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;} }
           const c=document.createElement('canvas');
           c.width=w; c.height=h;
           c.getContext('2d').drawImage(img,0,0,w,h);
-          results[fi]=c.toDataURL('image/jpeg',0.85);
+          results[fi]=c.toDataURL('image/jpeg',0.6);
         }catch(_){ results[fi]=raw; }
-        if(++loaded===files.length){
-          const item=dData(selKey)[selNote.panel][selNote.idx];
-          if(!item.images) item.images=[];
-          results.forEach(r=>item.images.push(r));
+        if(++loaded===filesToLoad.length){
+          const current=dData(selKey)[selNote.panel][selNote.idx];
+          if(!current.images) current.images=[];
+          results.forEach(r=>{ if(r) current.images.push(r); });
           save(); renderNoteImgs();
         }
       };
-      img.onerror=()=>{ results[fi]=raw; if(++loaded===files.length){ const item=dData(selKey)[selNote.panel][selNote.idx]; if(!item.images) item.images=[]; results.forEach(r=>item.images.push(r)); save(); renderNoteImgs(); } };
+      img.onerror=()=>{ results[fi]=raw; if(++loaded===filesToLoad.length){ const current=dData(selKey)[selNote.panel][selNote.idx]; if(!current.images) current.images=[]; results.forEach(r=>{ if(r) current.images.push(r); }); save(); renderNoteImgs(); } };
       img.src=raw;
     };
     r.readAsDataURL(f);
@@ -1023,6 +1037,7 @@ document.addEventListener('keydown', e => {
     }
     ref.onSnapshot(snap=>{
       if(_pendingSaves>0){ _pendingSaves--; return; }
+      if(_noteOpen) return;
       if(!snap.exists || !snap.data().db) return;
       DB = snap.data().db;
       localStorage.setItem('agenda_db', JSON.stringify(DB));
