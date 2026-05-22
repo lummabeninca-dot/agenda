@@ -449,27 +449,45 @@ let _noteImgs=[];
 
 function _imgsKey(){
   const item=dData(selKey)[selNote.panel][selNote.idx];
-  return `agenda_imgs_${item._id||selKey+'_'+selNote.panel+'_'+selNote.idx}`;
+  return `${item._id||selKey+'_'+selNote.panel+'_'+selNote.idx}`;
 }
-function _loadImgs(){ try{ return JSON.parse(localStorage.getItem(_imgsKey())||'[]'); }catch(_){ return []; } }
-function _saveImgs(){
+
+let _idb=null;
+function _getIDB(){
+  if(_idb) return Promise.resolve(_idb);
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open('agenda_imgs_v1',1);
+    req.onupgradeneeded=e=>e.target.result.createObjectStore('imgs');
+    req.onsuccess=e=>{ _idb=e.target.result; res(_idb); };
+    req.onerror=()=>rej(req.error);
+  });
+}
+
+async function _loadImgs(){
   try{
-    localStorage.setItem(_imgsKey(), JSON.stringify(_noteImgs));
-  }catch(e){
-    if(e.name==='QuotaExceededError'||e.code===22||e.code===1014){
-      // localStorage cheio — libera outras chaves de imagem antigas e tenta de novo
-      const key=_imgsKey();
-      let freed=false;
-      for(let i=0;i<localStorage.length;i++){
-        const k=localStorage.key(i);
-        if(k&&k.startsWith('agenda_imgs_')&&k!==key){
-          localStorage.removeItem(k); freed=true; break;
-        }
-      }
-      if(freed){ try{ localStorage.setItem(key,JSON.stringify(_noteImgs)); return; }catch(_){} }
-      alert('Armazenamento do celular cheio. Apague fotos de outras notas para continuar salvando.');
+    const db=await _getIDB(), key=_imgsKey();
+    const result=await new Promise(res=>{
+      const req=db.transaction('imgs','readonly').objectStore('imgs').get(key);
+      req.onsuccess=()=>res(req.result||[]);
+      req.onerror=()=>res([]);
+    });
+    // migra fotos antigas do localStorage na primeira vez
+    if(!result.length){
+      try{
+        const old=JSON.parse(localStorage.getItem('agenda_imgs_'+key)||
+          localStorage.getItem('agenda_imgs_'+selKey+'_'+selNote.panel+'_'+selNote.idx)||'[]');
+        if(old.length){ _noteImgs=old; _saveImgs(); return old; }
+      }catch(_){}
     }
-  }
+    return result;
+  }catch(_){ return []; }
+}
+
+function _saveImgs(){
+  _getIDB().then(db=>{
+    const tx=db.transaction('imgs','readwrite');
+    tx.objectStore('imgs').put([..._noteImgs],_imgsKey());
+  }).catch(()=>{});
 }
 
 function save(){
@@ -636,21 +654,14 @@ function deleteGNote(i){
 }
 
 // ─── NOTE DETAIL (Layout 3) ───────────────────────────
-function openNote(panel, idx){
+async function openNote(panel, idx){
   selNote={panel, idx};
   _noteOpen=true;
   const item=dData(selKey)[panel][idx];
-  // assign stable ID so images don't get lost if tasks are reordered/deleted
   if(!item._id) item._id = Date.now().toString(36)+Math.random().toString(36).slice(2);
-  // migrate legacy item.images → localStorage
-  if(item.image && !item.images){ item.images=[item.image]; delete item.image; }
-  if(item.images && item.images.length){
-    const existing=_loadImgs();
-    if(!existing.length){ localStorage.setItem(_imgsKey(), JSON.stringify(item.images)); }
-    item.images=[];
-    save();
-  }
-  _noteImgs=_loadImgs();
+  // limpa imagens antigas do DB (não vão mais pro Firebase)
+  if(item.image||item.images){ delete item.image; item.images=[]; save(); }
+  _noteImgs=await _loadImgs();
   document.getElementById('note-title').value=item.text||'';
   renderNoteImgs();
   renderSubnotes();
