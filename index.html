@@ -452,7 +452,25 @@ function _imgsKey(){
   return `agenda_imgs_${item._id||selKey+'_'+selNote.panel+'_'+selNote.idx}`;
 }
 function _loadImgs(){ try{ return JSON.parse(localStorage.getItem(_imgsKey())||'[]'); }catch(_){ return []; } }
-function _saveImgs(){ localStorage.setItem(_imgsKey(), JSON.stringify(_noteImgs)); }
+function _saveImgs(){
+  try{
+    localStorage.setItem(_imgsKey(), JSON.stringify(_noteImgs));
+  }catch(e){
+    if(e.name==='QuotaExceededError'||e.code===22||e.code===1014){
+      // localStorage cheio — libera outras chaves de imagem antigas e tenta de novo
+      const key=_imgsKey();
+      let freed=false;
+      for(let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i);
+        if(k&&k.startsWith('agenda_imgs_')&&k!==key){
+          localStorage.removeItem(k); freed=true; break;
+        }
+      }
+      if(freed){ try{ localStorage.setItem(key,JSON.stringify(_noteImgs)); return; }catch(_){} }
+      alert('Armazenamento do celular cheio. Apague fotos de outras notas para continuar salvando.');
+    }
+  }
+}
 
 function save(){
   localStorage.setItem('agenda_db',JSON.stringify(DB));
