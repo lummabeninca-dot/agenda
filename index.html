@@ -239,6 +239,16 @@
       width: 22px; height: 22px; font-size: 15px; cursor: pointer; line-height: 1;
       display: flex; align-items: center; justify-content: center; touch-action: manipulation;
     }
+    .img-pin {
+      position: absolute; top: 4px; left: 4px;
+      background: rgba(0,0,0,.45); color: white; border: none; border-radius: 50%;
+      width: 22px; height: 22px; font-size: 13px; cursor: pointer; line-height: 1;
+      display: flex; align-items: center; justify-content: center; touch-action: manipulation;
+      opacity: 0; transition: opacity .2s;
+    }
+    .img-thumb:hover .img-pin, .img-thumb.pinned .img-pin { opacity: 1; }
+    .img-thumb.pinned .img-pin { background: rgba(255,200,0,.85); color: #000; }
+    .img-thumb.pinned { outline: 2px solid #f5c400; border-radius: 4px; }
     .img-thumb { cursor: grab; }
     .img-thumb.img-drag-over { outline: 3px solid #4299e1; opacity: .6; }
 
@@ -662,6 +672,7 @@ async function openNote(panel, idx){
   // limpa imagens antigas do DB (não vão mais pro Firebase)
   if(item.image||item.images){ delete item.image; item.images=[]; save(); }
   _noteImgs=await _loadImgs();
+  _pinnedIdx = -1;
   document.getElementById('note-title').value=item.text||'';
   renderNoteImgs();
   renderSubnotes();
@@ -677,6 +688,22 @@ function saveNote(){
   showDay();
 }
 
+let _pinnedIdx = -1;
+
+function pinNoteImg(i){
+  if(_pinnedIdx === i){ _pinnedIdx = -1; }
+  else {
+    if(_pinnedIdx !== -1 && _pinnedIdx !== i){
+      // move currently pinned back, move new one to front
+    }
+    // move img i to position 0
+    const [img] = _noteImgs.splice(i, 1);
+    _noteImgs.unshift(img);
+    _pinnedIdx = 0;
+  }
+  _saveImgs(); renderNoteImgs();
+}
+
 function renderNoteImgs(){
   const imgs=_noteImgs;
   const area=document.getElementById('note-img-area');
@@ -686,8 +713,9 @@ function renderNoteImgs(){
     area.innerHTML='<div class="img-ph">toque em + IMAGEM<br>para adicionar</div>';
   } else {
     area.innerHTML=`<div class="img-grid" id="img-grid">${imgs.map((src,i)=>`
-      <div class="img-thumb" data-idx="${i}" onclick="openLightbox(${i})">
+      <div class="img-thumb${_pinnedIdx===i?' pinned':''}" data-idx="${i}" onclick="openLightbox(${i})">
         <img src="${src}" alt="">
+        <button class="img-pin" onclick="event.stopPropagation();pinNoteImg(${i})" title="fixar">📌</button>
         <button class="img-del" onclick="event.stopPropagation();delNoteImg(${i})">×</button>
       </div>`).join('')}</div>`;
   initImgDrag();
